@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepFake Detector</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #0f0f1a;
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: #1a1a2e;
+            border-radius: 20px;
+            padding: 40px;
+            width: 100%;
+            max-width: 600px;
+            box-shadow: 0 0 40px rgba(100, 100, 255, 0.2);
+        }
+        h1 {
+            text-align: center;
+            font-size: 2rem;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 30px;
+            font-size: 0.95rem;
+        }
+        .upload-area {
+            border: 2px dashed #444;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 20px;
+        }
+        .upload-area:hover { border-color: #667eea; background: rgba(102,126,234,0.05); }
+        .upload-area.dragover { border-color: #667eea; background: rgba(102,126,234,0.1); }
+        .upload-icon { font-size: 3rem; margin-bottom: 10px; }
+        .upload-text { color: #888; font-size: 0.9rem; }
+        .upload-text span { color: #667eea; cursor: pointer; }
+        #fileInput { display: none; }
+        #preview {
+            width: 100%;
+            max-height: 250px;
+            object-fit: contain;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        #videoPreview {
+            width: 100%;
+            max-height: 250px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        .filename {
+            text-align: center;
+            color: #aaa;
+            font-size: 0.85rem;
+            margin-bottom: 15px;
+            display: none;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: opacity 0.3s;
+        }
+        button:hover { opacity: 0.9; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .result {
+            margin-top: 25px;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            display: none;
+        }
+        .result.real { background: rgba(0, 200, 100, 0.1); border: 2px solid #00c864; }
+        .result.fake { background: rgba(255, 60, 60, 0.1); border: 2px solid #ff3c3c; }
+        .result.error { background: rgba(255, 165, 0, 0.1); border: 2px solid orange; }
+        .result-label {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+        .real .result-label { color: #00c864; }
+        .fake .result-label { color: #ff3c3c; }
+        .error .result-label { color: orange; font-size: 1.2rem; }
+        .result-confidence { color: #aaa; font-size: 1rem; margin-bottom: 15px; }
+        .result-details { color: #888; font-size: 0.85rem; line-height: 1.8; }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+            display: none;
+        }
+        .spinner {
+            border: 3px solid #333;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 DeepFake Detector</h1>
+        <p class="subtitle">Upload an image or video to detect if it's real or fake</p>
+
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📁</div>
+            <p>Drag & drop your file here</p>
+            <p class="upload-text">or <span onclick="document.getElementById('fileInput').click()">browse to upload</span></p>
+            <p class="upload-text" style="margin-top:8px">Supports: JPG, PNG, MP4</p>
+            <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.mp4,.avi,.mov">
+        </div>
+
+        <img id="preview" alt="Preview">
+        <video id="videoPreview" controls></video>
+        <p class="filename" id="filename"></p>
+
+        <button id="detectBtn" onclick="detect()" disabled>Detect DeepFake</button>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Analyzing... please wait</p>
+        </div>
+
+        <div class="result" id="result">
+            <div class="result-label" id="resultLabel"></div>
+            <div class="result-confidence" id="resultConfidence"></div>
+            <div class="result-details" id="resultDetails"></div>
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const uploadArea = document.getElementById('uploadArea');
+        const preview = document.getElementById('preview');
+        const videoPreview = document.getElementById('videoPreview');
+        const detectBtn = document.getElementById('detectBtn');
+        const filenameEl = document.getElementById('filename');
+        let selectedFile = null;
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) handleFile(file);
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files[0]) handleFile(fileInput.files[0]);
+        });
+
+        function handleFile(file) {
+            selectedFile = file;
+            filenameEl.textContent = file.name;
+            filenameEl.style.display = 'block';
+            detectBtn.disabled = false;
+            document.getElementById('result').style.display = 'none';
+
+            if (file.type.startsWith('image/')) {
+                preview.src = URL.createObjectURL(file);
+                preview.style.display = 'block';
+                videoPreview.style.display = 'none';
+            } else if (file.type.startsWith('video/')) {
+                videoPreview.src = URL.createObjectURL(file);
+                videoPreview.style.display = 'block';
+                preview.style.display = 'none';
+            }
+        }
+
+        async function detect() {
+            if (!selectedFile) return;
+
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').style.display = 'none';
+            detectBtn.disabled = true;
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            try {
+                const response = await fetch('/predict', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                document.getElementById('loading').style.display = 'none';
+                detectBtn.disabled = false;
+
+                const resultDiv = document.getElementById('result');
+                const resultLabel = document.getElementById('resultLabel');
+                const resultConfidence = document.getElementById('resultConfidence');
+                const resultDetails = document.getElementById('resultDetails');
+
+                resultDiv.style.display = 'block';
+
+                if (data.error) {
+                    resultDiv.className = 'result error';
+                    resultLabel.textContent = '⚠️ ' + data.error;
+                    resultConfidence.textContent = '';
+                    resultDetails.textContent = '';
+                    return;
+                }
+
+                const r = data.results[0];
+                if (r.error) {
+                    resultDiv.className = 'result error';
+                    resultLabel.textContent = '⚠️ ' + r.error;
+                    resultConfidence.textContent = '';
+                    resultDetails.textContent = '';
+                    return;
+                }
+
+                resultDiv.className = 'result ' + r.label.toLowerCase();
+                resultLabel.textContent = r.label === 'REAL' ? '✅ REAL' : '❌ FAKE';
+                resultConfidence.textContent = `Confidence: ${r.confidence}%`;
+
+                if (data.type === 'video') {
+                    resultDetails.textContent =
+                        `Frames analyzed: ${r.frames_analyzed} | Real frames: ${r.real_frames} | Fake frames: ${r.fake_frames}`;
+                } else {
+                    resultDetails.textContent = `Face ${r.face} detected and analyzed`;
+                }
+
+            } catch (err) {
+                document.getElementById('loading').style.display = 'none';
+                detectBtn.disabled = false;
+                alert('Error: ' + err.message);
+            }
+        }
+    </script>
+</body>
+</html>
